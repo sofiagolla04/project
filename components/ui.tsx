@@ -130,7 +130,7 @@ export function Form({
   children,
   ...props
 }: Omit<React.FormHTMLAttributes<HTMLFormElement>, "action" | "onSubmit"> & {
-  action: (data: FormData) => void | Promise<void>;
+  action: (data: FormData) => boolean | void | Promise<boolean | void>;
 }) {
   const [error, setError] = useState("");
   return (
@@ -145,8 +145,11 @@ export function Form({
         const form = event.currentTarget;
         setError("");
         try {
-          await action(new FormData(form));
-          delete form.dataset.dirty;
+          const saved = await action(new FormData(form));
+          // Handled validation/network failures may resolve without throwing.
+          // Clear only on an explicit success; successful modal/re-keyed forms
+          // otherwise unmount naturally, while failed input stays protected.
+          if (saved === true) delete form.dataset.dirty;
         } catch (e) {
           setError(
             e instanceof Error

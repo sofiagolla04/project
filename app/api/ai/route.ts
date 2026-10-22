@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { getProject, quota, saveProject } from "@/server/repository";
 import { authorize, hash, reviewInput } from "@/lib/domain";
+import type { Issue } from "@/lib/model";
+import {
+  reconcileAnalyzedIssues,
+  retainedIssuesForAnalysis,
+} from "@/lib/reconcile-analysis";
 import {
   aiInput,
   callAI,
@@ -28,6 +33,8 @@ export async function POST(req: Request) {
     authorize(ctx.workspace, ctx.project.propertyId, true);
     if (ctx.project.revision !== input.expected)
       throw Error("Project changed. Reload first.");
+    // Reject invalid retained citations before requesting or billing AI work.
+    if (input.stage === "issues") retainedIssuesForAnalysis(ctx.project);
     await quota(ctx, "ai", 3);
     if (!(process.env.OPENAI_API_KEY || process.env.HUP_AI_KEY))
       throw Error(
@@ -43,14 +50,20 @@ export async function POST(req: Request) {
       .maybeSingle();
     if (lookup) throw Error(lookup.message);
     let result: unknown;
-    if (existing?.status === "completed")
+    let nextIssues: Issue[] | undefined;
+    if (existing?.status === "completed") {
       result = validateAI(
         input.stage,
         existing.result,
         ctx.project,
         ctx.workspace,
       );
-    else {
+      if (input.stage === "issues")
+        nextIssues = reconcileAnalyzedIssues(
+          ctx.project,
+          extractionSchema.parse(result).issues,
+        );
+    } else {
       if (
         existing?.status === "running" &&
         Date.now() - Date.parse(existing.created_at) < 120000
@@ -99,6 +112,11 @@ export async function POST(req: Request) {
       }
       const output = await callAI(ctx.workspace, ctx.project, input.stage);
       result = output.result;
+      if (input.stage === "issues")
+        nextIssues = reconcileAnalyzedIssues(
+          ctx.project,
+          extractionSchema.parse(result).issues,
+        );
       const { error } = await ctx.admin
         .from("analysis_runs")
         .update({
@@ -114,7 +132,7 @@ export async function POST(req: Request) {
     if (input.stage !== "options") {
       const p = structuredClone(ctx.project);
       if (input.stage === "issues") {
-        p.draft.issues = extractionSchema.parse(result).issues;
+        p.draft.issues = nextIssues!;
         p.analysis = {
           inputHash: hash(reviewInput(p)),
           reviewIds: p.reviews.filter((r) => !r.excluded).map((r) => r.id),

@@ -25,6 +25,9 @@ import { Workspace, Action, workspaceSchema, Project } from "@/lib/model";
 import { applyAction, budget, canEdit, readiness } from "@/lib/domain";
 import { DEMO_STORAGE, demoWorkspace } from "@/lib/demo";
 import { browserClient } from "@/lib/supabase-browser";
+import { authPath, invitationFromSearch } from "@/lib/auth-navigation";
+import { getProjectGuidance } from "@/lib/project-guidance";
+import { ProjectGuidance } from "./project-guidance";
 import { Badge, Empty, Field, Modal, text } from "./ui";
 import { Form, confirmDiscard } from "./ui";
 import {
@@ -77,7 +80,7 @@ export default function Planner({ mode }: { mode: "demo" | "live" }) {
     const data = await r.json();
     if (!r.ok) {
       if (r.status === 401) {
-        router.replace("/auth");
+        router.replace(authPath(invitationFromSearch(window.location.search)));
         return;
       }
       throw Error(data.error);
@@ -105,9 +108,7 @@ export default function Planner({ mode }: { mode: "demo" | "live" }) {
           install(demoWorkspace());
         }
       } else {
-        setInvitation(
-          new URLSearchParams(window.location.search).get("invitation"),
-        );
+        setInvitation(invitationFromSearch(window.location.search));
         reload().catch((e) => setError(e.message));
       }
     });
@@ -223,11 +224,16 @@ export default function Planner({ mode }: { mode: "demo" | "live" }) {
       setBusy(false);
     }
   }
-  function openProject(p: Project) {
-    if (!confirmDiscard()) return;
+  function navigate(nextView: string) {
+    if (busy || (nextView !== view && !confirmDiscard())) return;
+    setView(nextView);
+    setMobile(false);
+  }
+  function openProject(p: Project, nextStage = 0) {
+    if (busy || !confirmDiscard()) return;
     setProjectId(p.id);
     setView("project");
-    setStage(0);
+    setStage(nextStage);
     setMobile(false);
     setMessage("");
   }
@@ -351,7 +357,13 @@ export default function Planner({ mode }: { mode: "demo" | "live" }) {
         </div>
       )}
       <aside className={`sidebar ${mobile ? "mobile-open" : ""}`}>
-        <Link href="/" className="brand">
+        <Link
+          href="/"
+          className="brand"
+          onNavigate={(event) => {
+            if (busy || !confirmDiscard()) event.preventDefault();
+          }}
+        >
           <span className="brand-mark">
             <House size={22} />
           </span>
@@ -381,9 +393,17 @@ export default function Planner({ mode }: { mode: "demo" | "live" }) {
             <select
               aria-label="Workspace"
               value={w.id}
-              onChange={(e) =>
-                reload(e.target.value).catch((e) => setError(e.message))
-              }
+              disabled={busy}
+              onChange={(e) => {
+                if (confirmDiscard())
+                  reload(e.target.value)
+                    .then(() => {
+                      setView("overview");
+                      setProjectId("");
+                      setStage(0);
+                    })
+                    .catch((e) => setError(e.message));
+              }}
             >
               {choices.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -396,10 +416,7 @@ export default function Planner({ mode }: { mode: "demo" | "live" }) {
         <nav aria-label="Main navigation">
           <button
             className={view === "overview" ? "nav-item active" : "nav-item"}
-            onClick={() => {
-              setView("overview");
-              setMobile(false);
-            }}
+            onClick={() => navigate("overview")}
           >
             <LayoutDashboard size={18} />
             Overview
@@ -453,20 +470,14 @@ export default function Planner({ mode }: { mode: "demo" | "live" }) {
           <div className="nav-divider" />
           <button
             className={`nav-item ${view === "catalog" ? "active" : ""}`}
-            onClick={() => {
-              setView("catalog");
-              setMobile(false);
-            }}
+            onClick={() => navigate("catalog")}
           >
             <Package size={18} />
             Product catalog
           </button>
           <button
             className={`nav-item ${view === "settings" ? "active" : ""}`}
-            onClick={() => {
-              setView("settings");
-              setMobile(false);
-            }}
+            onClick={() => navigate("settings")}
           >
             <SettingsIcon size={18} />
             Workspace settings
@@ -492,7 +503,9 @@ export default function Planner({ mode }: { mode: "demo" | "live" }) {
                 className="icon-button"
                 title="Sign out"
                 aria-label="Sign out"
+                disabled={busy}
                 onClick={async () => {
+                  if (!confirmDiscard()) return;
                   await browserClient().auth.signOut();
                   router.replace("/");
                 }}
@@ -532,9 +545,11 @@ export default function Planner({ mode }: { mode: "demo" | "live" }) {
                 <select
                   aria-label="Demo persona"
                   value={w.actor.id}
-                  onChange={(e) =>
-                    dispatch({ type: "persona", memberId: e.target.value })
-                  }
+                  disabled={busy}
+                  onChange={(e) => {
+                    if (confirmDiscard())
+                      dispatch({ type: "persona", memberId: e.target.value });
+                  }}
                 >
                   {w.members.map((m) => (
                     <option key={m.id} value={m.id}>
@@ -694,6 +709,9 @@ export default function Planner({ mode }: { mode: "demo" | "live" }) {
                       )!;
                       const b = budget(proj.draft);
                       const r = readiness(proj, w);
+                      const decision = proj.versions.find(
+                        (version) => version.id === proj.currentVersionId,
+                      )?.status;
                       return (
                         <button
                           key={proj.id}
@@ -710,9 +728,13 @@ export default function Planner({ mode }: { mode: "demo" | "live" }) {
                               <Badge tone={r.approved ? "green" : "amber"}>
                                 {r.approved
                                   ? "Approved"
-                                  : proj.currentVersionId
+                                  : decision === "submitted"
                                     ? "Awaiting decision"
-                                    : "Draft plan"}
+                                    : decision === "changes_requested"
+                                      ? "Changes requested"
+                                      : decision === "rejected"
+                                        ? "Rejected"
+                                        : "Draft plan"}
                               </Badge>
                             </div>
                             <h3>{proj.name}</h3>
@@ -778,7 +800,9 @@ export default function Planner({ mode }: { mode: "demo" | "live" }) {
                     {p && (
                       <button
                         className="secondary"
-                        onClick={() => openProject(p)}
+                        onClick={() =>
+                          openProject(p, getProjectGuidance(p, w).stage)
+                        }
                       >
                         Continue your project <ArrowRight size={15} />
                       </button>
@@ -793,10 +817,7 @@ export default function Planner({ mode }: { mode: "demo" | "live" }) {
                       <button
                         className="deadline"
                         key={t.id}
-                        onClick={() => {
-                          openProject(t.project);
-                          setStage(4);
-                        }}
+                        onClick={() => openProject(t.project, 4)}
                       >
                         <strong>{t.title}</strong>
                         <span>
@@ -822,7 +843,7 @@ export default function Planner({ mode }: { mode: "demo" | "live" }) {
                 <div>
                   <button
                     className="back-link"
-                    onClick={() => setView("overview")}
+                    onClick={() => navigate("overview")}
                   >
                     ← All projects
                   </button>
@@ -838,26 +859,43 @@ export default function Planner({ mode }: { mode: "demo" | "live" }) {
                 <Badge tone={readiness(p, w).approved ? "green" : "amber"}>
                   {readiness(p, w).approved
                     ? "Current plan approved"
-                    : p.currentVersionId
+                    : p.versions.some(
+                          (version) =>
+                            version.id === p.currentVersionId &&
+                            version.status === "submitted",
+                        )
                       ? "Submitted for decision"
                       : "Needs approval"}
                 </Badge>
               </div>
+              <ProjectGuidance
+                guidance={getProjectGuidance(p, w)}
+                disabled={busy}
+                onNavigate={(nextStage) => {
+                  if (stage !== nextStage && confirmDiscard())
+                    setStage(nextStage);
+                }}
+              />
               <nav className="stage-nav" aria-label="Project stages">
                 {stages.map((s, i) => (
                   <button
                     key={s}
+                    disabled={busy}
                     onClick={() => {
-                      if (confirmDiscard()) setStage(i);
+                      if (stage !== i && confirmDiscard()) setStage(i);
                     }}
                     className={stage === i ? "active" : ""}
+                    aria-current={stage === i ? "step" : undefined}
                   >
                     <span>{i + 1}</span>
                     {s}
                   </button>
                 ))}
               </nav>
-              <div className="stage-content" key={p.id + ":" + stage}>
+              <div
+                className="stage-content"
+                key={`${w.id}:${w.actor.id}:${p.id}:${stage}`}
+              >
                 {stage === 0 ? (
                   <Brief {...props} />
                 ) : stage === 1 ? (
@@ -877,6 +915,7 @@ export default function Planner({ mode }: { mode: "demo" | "live" }) {
                 {stage < 4 && (
                   <button
                     className="secondary"
+                    disabled={busy}
                     onClick={() => {
                       if (confirmDiscard()) setStage(stage + 1);
                     }}
@@ -889,10 +928,17 @@ export default function Planner({ mode }: { mode: "demo" | "live" }) {
             </>
           )}
           {view === "catalog" && (
-            <Catalog w={w} dispatch={dispatch} busy={busy} notify={notify} />
+            <Catalog
+              key={`${w.id}:${w.actor.id}`}
+              w={w}
+              dispatch={dispatch}
+              busy={busy}
+              notify={notify}
+            />
           )}
           {view === "settings" && (
             <Settings
+              key={`${w.id}:${w.actor.id}`}
               w={w}
               dispatch={dispatch}
               busy={busy}

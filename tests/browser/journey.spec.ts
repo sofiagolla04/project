@@ -86,6 +86,9 @@ test("complete isolated planning journey, version decisions, task actuals, expor
   expect((await csvDownload).suggestedFilename()).toContain(".csv");
   await page.emulateMedia({ media: "print" });
   await expect(page.locator(".print-sheet")).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Suggested next step" }),
+  ).not.toBeVisible();
   await expect(page.locator(".print-sheet")).toContainText(
     "DEMO — SYNTHETIC DATA",
   );

@@ -1212,7 +1212,7 @@ function LineEditor({
             action,
             productId: action === "buy" ? productId || null : null,
             roomId: text(f, "room") || null,
-            quantity: num(f, "quantity"),
+            quantity: action === "buy" ? num(f, "quantity") : line.quantity,
             unit: action === "buy" ? cost(f, "unit") : 0,
             basis:
               action === "buy"

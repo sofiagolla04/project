@@ -24,6 +24,12 @@ Runs are persisted before a provider request, unique by project/stage/input hash
 
 The model proposes text and references; it does not own cost arithmetic, verification, permissions or final readiness. Candidates are filtered on known constraints before they are supplied. Parsed evidence and candidate IDs are validated again. AI errors never invoke the synthetic adapter. Manual observations and interventions work without AI.
 
+Live issue reanalysis preserves existing issues that are referenced by interventions, contain operator observations, have no citations, or have an explicit dismissed/resolved assessment. Their evidence and room references are validated before requesting provider work. Invalid protected citations leave the plan unchanged and require the existing manual evidence correction flow. Valid extracted findings are added without replacing protected IDs; empty/duplicate extracted IDs are rejected before a run is marked completed. This does not infer semantic equivalence between different issue IDs or merge similar topics automatically.
+
+The next-step guide derives navigation advice from the existing domain checks, exact current revision and actor permissions. It never grants a permission or changes reviewability/purchase readiness. Forms clear their dirty marker only on explicit success or a successful component remount; handled failures retain the marker. Navigation to another view, workspace or persona asks before discarding unsaved input.
+
+Authentication return paths are constructed only for `/app`, `/auth` and `/auth/callback`, optionally carrying the application's validated invitation token and recovery flag. Arbitrary redirect destinations are not accepted. Production email redirects still require provider configuration and end-to-end validation.
+
 ## Costs, fit and decisions
 
 Prices and quantities are validated, integer-based and bounded. Gross plan unit prices incorporate explicitly known catalog VAT once; other taxes and grouped delivery are explicit plan components. Fixed/percentage contingency is deterministic. Budget allowances are labeled; unknown required costs block reviewability. Width/depth and curtain-coverage checks are intentionally limited and explain their recorded inputs. Unknown facts never become a green pass.

@@ -1,22 +1,28 @@
 import { userClient } from "@/server/supabase";
 import { NextResponse } from "next/server";
+import { appPath, authPath, invitationFromSearch } from "@/lib/auth-navigation";
 export async function GET(req: Request) {
   const url = new URL(req.url),
-    code = url.searchParams.get("code");
+    code = url.searchParams.get("code"),
+    invitation = invitationFromSearch(url.searchParams);
   if (code) {
-    const db = await userClient();
-    const { error } = await db.auth.exchangeCodeForSession(code);
-    if (!error)
-      return NextResponse.redirect(
-        new URL(
-          url.searchParams.get("recovery") === "1"
-            ? "/auth?recovery=1"
-            : "/app",
-          url.origin,
-        ),
-      );
+    try {
+      const db = await userClient();
+      const { error } = await db.auth.exchangeCodeForSession(code);
+      if (!error)
+        return NextResponse.redirect(
+          new URL(
+            url.searchParams.get("recovery") === "1"
+              ? authPath(invitation, true)
+              : appPath(invitation),
+            url.origin,
+          ),
+        );
+    } catch {
+      // Failed/expired exchanges return to sign-in with the invitation intact.
+    }
   }
-  return NextResponse.redirect(
-    new URL("/auth?error=Unable%20to%20complete%20authentication", url.origin),
-  );
+  const destination = new URL(authPath(invitation), url.origin);
+  destination.searchParams.set("error", "Unable to complete authentication");
+  return NextResponse.redirect(destination);
 }
