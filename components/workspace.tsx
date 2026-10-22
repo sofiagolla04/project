@@ -495,7 +495,7 @@ export function Settings({
           <h3>Locale & freshness policies</h3>
           <Form
             action={async (f) => {
-              await dispatch({
+              return dispatch({
                 type: "settings",
                 settings: {
                   ...w.settings,
@@ -705,6 +705,7 @@ export function Settings({
                   setMember(null);
                   notify("Member access updated.");
                 }
+                return true;
               } catch (e) {
                 setError(
                   e instanceof Error ? e.message : "Membership update failed",

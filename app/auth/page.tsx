@@ -1,18 +1,34 @@
 "use client";
 import Link from "next/link";
-import {useRouter} from "next/navigation";
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
 import { browserClient } from "@/lib/supabase-browser";
+import {
+  appPath,
+  authCallbackPath,
+  invitationFromSearch,
+} from "@/lib/auth-navigation";
 export default function Auth() {
- const router=useRouter();
-  const [mode, setMode] = useState<"signin" | "signup" | "reset" | "recovery">(
-    () =>
-      typeof window !== "undefined" &&
-      new URLSearchParams(window.location.search).has("recovery")
-        ? "recovery"
-        : "signin",
+  return (
+    <Suspense
+      fallback={<main className="auth-wrap">Opening account access…</main>}
+    >
+      <AuthForm />
+    </Suspense>
   );
-  const [status, setStatus] = useState("");
+}
+function AuthForm() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const invitation = invitationFromSearch(searchParams.toString());
+  const [mode, setMode] = useState<"signin" | "signup" | "reset" | "recovery">(
+    () => (searchParams.get("recovery") === "1" ? "recovery" : "signin"),
+  );
+  const [status, setStatus] = useState(() =>
+    searchParams.has("error")
+      ? "Unable to complete authentication. Sign in again or request a new recovery email."
+      : "",
+  );
   const [busy, setBusy] = useState(false);
   const configured = !!(
     process.env.NEXT_PUBLIC_SUPABASE_URL &&
@@ -25,11 +41,14 @@ export default function Auth() {
       const db = browserClient(),
         email = String(form.get("email")),
         password = String(form.get("password"));
-      const redirect = window.location.origin + "/auth/callback";
+      const redirect = new URL(
+        authCallbackPath(invitation),
+        window.location.origin,
+      ).href;
       if (mode === "signin") {
         const { error } = await db.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        router.replace("/app");
+        router.replace(appPath(invitation));
       } else if (mode === "signup") {
         const { error } = await db.auth.signUp({
           email,
@@ -40,14 +59,17 @@ export default function Auth() {
         setStatus("Check your email to confirm your account, then sign in.");
       } else if (mode === "reset") {
         const { error } = await db.auth.resetPasswordForEmail(email, {
-          redirectTo: redirect + "?recovery=1",
+          redirectTo: new URL(
+            authCallbackPath(invitation, true),
+            window.location.origin,
+          ).href,
         });
         if (error) throw error;
         setStatus("If an account exists, a recovery email will be sent.");
       } else {
         const { error } = await db.auth.updateUser({ password });
         if (error) throw error;
-        router.replace("/app");
+        router.replace(appPath(invitation));
       }
     } catch (e) {
       setStatus(e instanceof Error ? e.message : "Authentication failed.");
@@ -80,7 +102,18 @@ export default function Auth() {
           </>
         ) : (
           <>
-            <form action={submit}>
+            {invitation && (
+              <p className="notice">
+                Sign in with the email address named in your invitation. Your
+                invitation will be waiting after authentication.
+              </p>
+            )}
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void submit(new FormData(event.currentTarget));
+              }}
+            >
               {mode !== "recovery" && (
                 <label>
                   Email
@@ -122,6 +155,7 @@ export default function Auth() {
             <div className="row wrap">
               <button
                 className="link-button"
+                disabled={busy}
                 onClick={() => {
                   setMode(mode === "signup" ? "signin" : "signup");
                   setStatus("");
@@ -133,6 +167,7 @@ export default function Auth() {
               </button>
               <button
                 className="link-button"
+                disabled={busy}
                 onClick={() => {
                   setMode("reset");
                   setStatus("");

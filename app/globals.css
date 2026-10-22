@@ -1,4 +1,44 @@
 @import "tailwindcss";
+.card.project-guidance {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 24px;
+  border-left: 3px solid var(--green);
+}
+.project-guidance.amber {
+  border-left-color: var(--amber);
+}
+.project-guidance-copy {
+  min-width: 0;
+}
+.project-guidance .eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 8px;
+}
+.project-guidance h2 {
+  font-size: 22px;
+  margin-bottom: 6px;
+}
+.project-guidance-copy > p:last-child {
+  margin-bottom: 0;
+  color: var(--muted);
+  max-width: 760px;
+}
+.project-guidance > button {
+  flex-shrink: 0;
+  max-width: 100%;
+}
+@media (max-width: 700px) {
+  .card.project-guidance {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+}
 :root {
   --paper: #f7f7f2;
   --white: #fff;
@@ -2854,6 +2894,7 @@ details li {
   .topbar,
   .workspace-main > .notice,
   .page-heading,
+  .project-guidance,
   .stage-nav,
   .stage-footer,
   .app-footer,
